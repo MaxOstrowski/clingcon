@@ -27,6 +27,7 @@
 
 #include <clingcon/solver.hh>
 #include <clingcon/constraints.hh>
+#include <clingcon/dlpropagator.hh>
 
 #include <unordered_map>
 #include <unordered_set>
@@ -199,6 +200,9 @@ private:
     Statistics stats_accu_;                 //!< accumulated statistics
     VarSet show_variable_;                  //!< variables to show
     SigSet show_signature_;                 //!< signatures to show
+    ClingoDL::Stats dl_stats_;
+    ClingoDL::DLPropagatorConfig dl_config_;
+    ClingoDL::DifferenceLogicPropagator dl_prop_{dl_stats_, dl_config_};
     MinimizeConstraint *minimize_{nullptr}; //!< minimize constraint
     std::optional<sum_t> minimize_bound_;   //!< bound of the minimize constraint
     bool translated_minimize_{false};       //!< whether a minimize constraint has been translated

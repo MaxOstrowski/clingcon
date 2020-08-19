@@ -46,7 +46,7 @@ enum class Target { Heuristic, SignValue, RefineReasons, RefineIntroduce, Propag
 } // namespace
 
 struct clingcon_theory {
-    Propagator propagator;
+    Clingcon::Propagator propagator;
     Clingo::Detail::ParserList parsers;
     std::map<std::pair<Target, std::optional<uint32_t>>, val_t> deferred;
     bool shift_constraints{true};
@@ -57,7 +57,7 @@ namespace {
 bool init(clingo_propagate_init_t* c_init, void* data) {
     CLINGCON_TRY {
         Clingo::PropagateInit init{c_init};
-        static_cast<Propagator*>(data)->init(init);
+        static_cast<Clingcon::Propagator*>(data)->init(init);
     }
     CLINGCON_CATCH;
 }
@@ -65,20 +65,20 @@ bool init(clingo_propagate_init_t* c_init, void* data) {
 bool propagate(clingo_propagate_control_t* c_ctl, const clingo_literal_t *changes, size_t size, void* data) {
     CLINGCON_TRY {
         Clingo::PropagateControl ctl{c_ctl};
-        static_cast<Propagator*>(data)->propagate(ctl, {changes, size});
+        static_cast<Clingcon::Propagator*>(data)->propagate(ctl, {changes, size});
     }
     CLINGCON_CATCH;
 }
 
 void undo(clingo_propagate_control_t const *c_ctl, clingo_literal_t const *changes, size_t size, void* data) {
     Clingo::PropagateControl ctl(const_cast<clingo_propagate_control_t *>(c_ctl)); // NOLINT
-    static_cast<Propagator*>(data)->undo(ctl, {changes, size});
+    static_cast<Clingcon::Propagator*>(data)->undo(ctl, {changes, size});
 }
 
 bool check(clingo_propagate_control_t *c_ctl, void* data) {
     CLINGCON_TRY {
         Clingo::PropagateControl ctl{c_ctl};
-        static_cast<Propagator*>(data)->check(ctl);
+        static_cast<Clingcon::Propagator*>(data)->check(ctl);
     }
     CLINGCON_CATCH;
 }
@@ -86,7 +86,7 @@ bool check(clingo_propagate_control_t *c_ctl, void* data) {
 bool decide(clingo_id_t thread_id, clingo_assignment_t const *c_ass, clingo_literal_t fallback, void* data, clingo_literal_t *result) {
     CLINGCON_TRY {
         Clingo::Assignment ass{c_ass};
-        *result = static_cast<Propagator*>(data)->decide(thread_id, ass, fallback);
+        *result = static_cast<Clingcon::Propagator*>(data)->decide(thread_id, ass, fallback);
     }
     CLINGCON_CATCH;
 }
@@ -95,12 +95,12 @@ char const *flag_str(bool value) {
     return value ? "yes" : "no";
 }
 
-char const *heuristic_str(Heuristic heu) {
+char const *heuristic_str(Clingcon::Heuristic heu) {
     switch(heu) {
-        case Heuristic::None: {
+        case Clingcon::Heuristic::None: {
             return "none";
         }
-        case Heuristic::MaxChain: {
+        case Clingcon::Heuristic::MaxChain: {
             return "max-chain";
             break;
         }
@@ -175,7 +175,7 @@ void set_value(Target target, SolverConfig &config, val_t value) {
             break;
         }
         case Target::Heuristic: {
-            config.heuristic = static_cast<Heuristic>(value);
+            config.heuristic = static_cast<Clingcon::Heuristic>(value);
             break;
         }
         case Target::RefineReasons: {
@@ -262,10 +262,10 @@ void set_value(Target target, Config &config, std::pair<val_t, std::optional<uin
     }
 
     if (std::strncmp(value, "none", comma - value) == 0) {
-        return {static_cast<val_t>(Heuristic::None), thread};
+        return {static_cast<val_t>(Clingcon::Heuristic::None), thread};
     }
     if (std::strncmp(value, "max-chain", comma - value) == 0) {
-        return {static_cast<val_t>(Heuristic::MaxChain), thread};
+        return {static_cast<val_t>(Clingcon::Heuristic::MaxChain), thread};
     }
     throw std::invalid_argument("invalid argument");
 }
@@ -303,10 +303,10 @@ extern "C" bool clingcon_create(clingcon_theory_t **theory) {
 extern "C" bool clingcon_register(clingcon_theory_t *theory, clingo_control_t* control) {
     // Note: The decide function is passed here for performance reasons.
     auto &config = theory->propagator.config();
-    bool has_heuristic = config.default_solver_config.heuristic != Heuristic::None;
+    bool has_heuristic = config.default_solver_config.heuristic != Clingcon::Heuristic::None;
     for (auto &sconfig : config.solver_configs) {
         if (has_heuristic) { break; }
-        has_heuristic = sconfig.heuristic != Heuristic::None;
+        has_heuristic = sconfig.heuristic != Clingcon::Heuristic::None;
     }
 
     static clingo_propagator_t propagator = { init, propagate, undo, check, has_heuristic ? decide : nullptr };

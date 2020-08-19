@@ -377,6 +377,7 @@ void Propagator::add_constraint(UniqueConstraint constraint) {
 
 void Propagator::init(Clingo::PropagateInit &init) {
     init.set_check_mode(Clingo::PropagatorCheckMode::Partial);
+    dl_prop_.init(init);
 
     Timer timer{stats_step_.time_init};
     InitClauseCreator cc{init, stats_step_};
@@ -486,6 +487,7 @@ void Propagator::propagate(Clingo::PropagateControl &control, Clingo::LiteralSpa
     auto &solver = solver_(control.thread_id());
     ControlClauseCreator cc{control, solver.statistics()};
     static_cast<void>(solver.propagate(cc, changes));
+    dl_prop_.propagate(control, changes);
 }
 
 void Propagator::check(Clingo::PropagateControl &control) {
@@ -505,6 +507,8 @@ void Propagator::check(Clingo::PropagateControl &control) {
         return;
     }
 
+    dl_prop_.check(control);
+
     // Note: Makes sure that all variables are assigned in the end. But even if
     // the assignment is total, we do not have to introduce fresh variables if
     // variables have been introduced during check. In this case, there is a
@@ -518,6 +522,7 @@ void Propagator::check(Clingo::PropagateControl &control) {
 void Propagator::undo(Clingo::PropagateControl const &control, Clingo::LiteralSpan changes) noexcept {
     static_cast<void>(changes);
     solver_(control.thread_id()).undo();
+    dl_prop_.undo(control, changes);
 }
 
 lit_t Propagator::decide(Clingo::id_t thread_id, Clingo::Assignment const &assign, lit_t fallback) {
