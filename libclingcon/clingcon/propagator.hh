@@ -31,6 +31,7 @@
 
 #include <unordered_map>
 #include <unordered_set>
+#include <atomic>
 
 //! @file clingcon/propagator.hh
 //! This module implements a theory propagator for CSP constraints.
@@ -191,22 +192,28 @@ private:
     //! minimize constraints have to be removed first.
     void add_minimize_(UniqueMinimizeConstraint minimize);
 
-    Config config_;                         //!< configuration
-    ConstraintVec constraints_;             //!< the set of constraints
-    std::vector<Solver> solvers_;           //!< map thread id to solvers
-    SymMap sym_map_;                        //!< map from variable names to indices
-    VarMap var_map_;                        //!< map from indices to variable names
-    Statistics stats_step_;                 //!< statistics of the current call
-    Statistics stats_accu_;                 //!< accumulated statistics
-    VarSet show_variable_;                  //!< variables to show
-    SigSet show_signature_;                 //!< signatures to show
+    //! Value of minimize constraint, when no bound has been found yet.
+    //!
+    //! Since this is the largest value a minimize constraint can take, all
+    //! models found will have a value less than or equal to it.
+    static constexpr sum_t no_bound = std::numeric_limits<sum_t>::max();
+
+    Config config_;                               //!< configuration
+    ConstraintVec constraints_;                   //!< the set of constraints
+    std::vector<Solver> solvers_;                 //!< map thread id to solvers
+    SymMap sym_map_;                              //!< map from variable names to indices
+    VarMap var_map_;                              //!< map from indices to variable names
+    Statistics stats_step_;                       //!< statistics of the current call
+    Statistics stats_accu_;                       //!< accumulated statistics
+    VarSet show_variable_;                        //!< variables to show
+    SigSet show_signature_;                       //!< signatures to show
     ClingoDL::Stats dl_stats_;
     ClingoDL::DLPropagatorConfig dl_config_;
     ClingoDL::DifferenceLogicPropagator dl_prop_{dl_stats_, dl_config_};
-    MinimizeConstraint *minimize_{nullptr}; //!< minimize constraint
-    std::optional<sum_t> minimize_bound_;   //!< bound of the minimize constraint
-    bool translated_minimize_{false};       //!< whether a minimize constraint has been translated
-    bool show_{false};                      //!< whether there is a show statement
+    MinimizeConstraint *minimize_{nullptr};       //!< minimize constraint
+    std::atomic<sum_t> minimize_bound_{no_bound}; //!< bound of the minimize constraint
+    bool translated_minimize_{false};             //!< whether a minimize constraint has been translated
+    bool show_{false};                            //!< whether there is a show statement
 };
 
 } // namespace Clingcon

@@ -98,7 +98,8 @@ public:
     //!
     //! Binary distinct constraints will be represented with a sum constraint.
     [[nodiscard]] bool add_distinct(lit_t lit, std::vector<std::pair<CoVarVec, val_t>> const &elems) override {
-        if (cc_.assignment().is_false(lit)) {
+        auto truth = cc_.assignment().truth_value(lit);
+        if (truth == Clingo::TruthValue::False) {
             return true;
         }
 
@@ -107,10 +108,15 @@ public:
             return true;
         }
 
+        // Note: even though translation is also handled in constraints, it is
+        // easier to do it here right away because at this point we can also
+        // add trivial constraints that will be simplified further later on.
+        // The only advantage of doing it in the constraint would be that we
+        // potentially have to introduce fewer literals.
         CoVarVec celems;
         for (auto it = elems.begin(), ie = elems.end(); it != ie; ++it) {
             for (auto jt = it + 1; jt != ie; ++jt) {
-                auto rhs = it->second - jt->second;
+                auto rhs = jt->second - it->second;
                 celems.assign(it->first.begin(), it->first.end());
                 for (auto [co, var] : jt->first) {
                     celems.emplace_back(-co, var);
@@ -118,22 +124,28 @@ public:
                 rhs += simplify(celems, true);
 
                 if (celems.empty()) {
-                    return rhs != 0 || cc_.add_clause({-lit});
+                    if (rhs == 0) {
+                        return cc_.add_clause({-lit});
+                    }
+                    continue;
                 }
 
                 auto a = cc_.add_literal();
-                auto b = cc_.add_literal();
-                if (!cc_.add_clause({a, b, -lit})) {
-                    return false;
-                }
-                if (!cc_.add_clause({-a, -b})) {
-                    return false;
-                }
-                if (!cc_.add_clause({lit, -a})) {
-                    return false;
-                }
-                if (!cc_.add_clause({lit, -b})) {
-                    return false;
+                auto b = -a;
+                if (truth != Clingo::TruthValue::True) {
+                    b = cc_.add_literal();
+                    if (!cc_.add_clause({a, b, -lit})) {
+                        return false;
+                    }
+                    if (!cc_.add_clause({-a, -b})) {
+                        return false;
+                    }
+                    if (!cc_.add_clause({lit, -a})) {
+                        return false;
+                    }
+                    if (!cc_.add_clause({lit, -b})) {
+                        return false;
+                    }
                 }
 
                 if (!add_constraint(a, celems, check_valid_value(rhs-1), false)) {
@@ -275,7 +287,7 @@ void Propagator::on_model(Clingo::Model &model) {
         auto bound = get_minimize_value(model.thread_id());
         auto value = Clingo::String(std::to_string(bound).c_str());
         symbols_.emplace_back(Clingo::Function("__csp_cost", {value}));
-        if (!minimize_bound_.has_value() || bound <= *minimize_bound_) {
+        if (bound <= minimize_bound_.load(std::memory_order_relaxed)) {
             stats_step_.cost = bound;
             update_minimize(bound - 1);
         }
@@ -437,6 +449,12 @@ void Propagator::init(Clingo::PropagateInit &init) {
     for (auto it = solvers_.begin() + 1, ie = solvers_.end(); it != ie; ++it) {
         it->copy_state(master);
     }
+
+    // If there is a minimize constraint we have to enable total checks subject
+    // to the model lock too.
+    if (has_minimize()) {
+        init.set_check_mode(Clingo::PropagatorCheckMode::Both);
+    }
 }
 
 bool Propagator::simplify_(AbstractClauseCreator &cc) {
@@ -496,9 +514,12 @@ void Propagator::check(Clingo::PropagateControl &control) {
     auto &solver = solver_(control.thread_id());
     auto dl = ass.decision_level();
 
-    if (minimize_ != nullptr && minimize_bound_.has_value()) {
-        auto bound = *minimize_bound_ + minimize_->adjust();
-        solver.update_minimize(*minimize_, dl, bound);
+    if (minimize_ != nullptr) {
+        auto minimize_bound = minimize_bound_.load(std::memory_order_relaxed);
+        if (minimize_bound != no_bound) {
+            auto bound = minimize_bound + minimize_->adjust();
+            solver.update_minimize(*minimize_, dl, bound);
+        }
     }
 
     ControlClauseCreator cc{control, solver.statistics()};

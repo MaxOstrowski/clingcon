@@ -92,7 +92,6 @@ inline S solve(Config const &config, std::string const &prg) {
     // IS THIS RIGHT ?
     ::SolveEventHandler handler{p};
 
-    // TODO: there is a potential clasp bug regarding multi-threading
     Clingo::Control ctl{{"100", "--opt-mode=optN", "-t8"}};
     ctl.add("base", {}, THEORY);
     ctl.with_builder([prg](Clingo::ProgramBuilder &builder) {
