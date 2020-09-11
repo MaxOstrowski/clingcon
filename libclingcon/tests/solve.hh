@@ -26,6 +26,7 @@
 #define CLINGCON_TEST_SOLVE_H
 
 #include <clingcon/propagator.hh>
+#include <clingcon/dlpropagator.hh>
 #include <clingcon/parsing.hh>
 
 #include <sstream>
@@ -38,7 +39,7 @@ using S = std::vector<std::string>;
 
 class SolveEventHandler : public Clingo::SolveEventHandler {
 public:
-    SolveEventHandler(Propagator &p) : p{p} { }
+    SolveEventHandler(Clingcon::Propagator &p) : p{p} { }
     void on_statistics(Clingo::UserStatistics step, Clingo::UserStatistics accu) override {
         p.on_statistics(step, accu);
     }
@@ -81,15 +82,18 @@ public:
         models.emplace_back(oss.str());
         return true;
     }
-    Propagator &p;
+    Clingcon::Propagator &p;
     S models;
     bool proven = false;
 };
 
 inline S solve(Config const &config, std::string const &prg) {
-    Propagator p;
+    Clingcon::Propagator p;
+    ClingoDL::Stats dlstats;
+    ClingoDL::PropagatorConfig dlconf;
+    ClingoDL::DifferenceLogicPropagator dlp(dlstats,dlconf);
     p.config() = config;
-    SolveEventHandler handler{p};
+    ::SolveEventHandler handler{p};
 
     Clingo::Control ctl{{"100", "--opt-mode=optN", "-t8"}};
     ctl.add("base", {}, THEORY);
@@ -100,6 +104,7 @@ inline S solve(Config const &config, std::string const &prg) {
             }, true);
         });
     });
+    ctl.register_propagator(dlp);
     ctl.register_propagator(p);
     ctl.ground({{"base", {}}});
 
@@ -144,7 +149,7 @@ inline S solve(Config const &config, std::string const &prg) {
     return handler.models;
 }
 inline S solve(std::string const &prg, val_t min_int = Clingcon::DEFAULT_MIN_INT, val_t max_int = Clingcon::DEFAULT_MAX_INT) {
-    SolverConfig sconfig{Heuristic::MaxChain, 0, false, true, true, true};
+    SolverConfig sconfig{Clingcon::Heuristic::MaxChain, 0, false, true, true, true};
     constexpr uint32_t m = 1000;
     auto configs = std::array{
         Config{{}, min_int, max_int, 0, 0, 0, sconfig, false, false, false, false, true, true},  // basic
