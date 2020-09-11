@@ -1,5 +1,6 @@
 #include <clingo.hh>
 #include <clingcon.h>
+#include <clingo-dl.h>
 #include <sstream>
 #include <fstream>
 #include <optional>
@@ -13,8 +14,8 @@ using Clingo::Detail::handle_error;
 
 class Rewriter {
 public:
-    Rewriter(clingcon_theory_t *theory, clingo_program_builder_t *builder)
-    : theory_{theory}
+    Rewriter(clingcon_theory_t *csptheory, clingo_program_builder_t *builder)
+    : csptheory_{csptheory}
     , builder_{builder} {
     }
 
@@ -45,10 +46,10 @@ private:
 
     static bool rewrite_(clingo_ast_statement_t const *stm, void *data) {
         auto *self = static_cast<Rewriter*>(data);
-        return clingcon_rewrite_statement(self->theory_, stm, add_, self);
+        return clingcon_rewrite_statement(self->csptheory_, stm, add_, self);
     }
 
-    clingcon_theory_t *theory_;
+    clingcon_theory_t *csptheory_;
     clingo_program_builder_t *builder_;
 };
 
@@ -56,7 +57,8 @@ private:
 class ClingconApp final : public Clingo::Application, private Clingo::SolveEventHandler {
 public:
     ClingconApp() {
-        handle_error(clingcon_create(&theory_));
+        handle_error(clingcon_create(&csptheory_));
+        handle_error(clingodl_create(&dltheory_));
     }
 
     ClingconApp(ClingconApp const &) = delete;
@@ -65,8 +67,11 @@ public:
     ClingconApp &operator=(ClingconApp &&) = delete;
 
     ~ClingconApp() override {
-        if (theory_ != nullptr) {
-            clingcon_destroy(theory_);
+        if (csptheory_ != nullptr) {
+            clingcon_destroy(csptheory_);
+        }
+        if (dltheory_ != nullptr) {
+            clingodl_destroy(dltheory_);
         }
     }
 
@@ -79,15 +84,17 @@ public:
     }
 
     void register_options(Clingo::ClingoOptions &options) override {
-        handle_error(clingcon_register_options(theory_, options.to_c()));
+        handle_error(clingcon_register_options(csptheory_, options.to_c()));
+        handle_error(clingodl_register_options(dltheory_, options.to_c()));
     }
 
     void validate_options() override {
-        handle_error(clingcon_validate_options(theory_));
+        handle_error(clingcon_validate_options(csptheory_));
+        handle_error(clingodl_validate_options(dltheory_));
     }
 
     bool on_model(Clingo::Model &model) override {
-        handle_error(clingcon_on_model(theory_, model.to_c()));
+        handle_error(clingcon_on_model(csptheory_, model.to_c()));
         return true;
     }
 
@@ -140,15 +147,18 @@ public:
 
     }
     void on_statistics(Clingo::UserStatistics step, Clingo::UserStatistics accu) override {
-        handle_error(clingcon_on_statistics(theory_, step.to_c(), accu.to_c()));
+        handle_error(clingcon_on_statistics(csptheory_, step.to_c(), accu.to_c()));
+        handle_error(clingodl_on_statistics(dltheory_, step.to_c(), accu.to_c()));
     }
 
     void main(Clingo::Control &control, Clingo::StringSpan files) override { // NOLINT(bugprone-exception-escape)
-        handle_error(clingcon_register(theory_, control.to_c()));
+        handle_error(clingodl_register(dltheory_, control.to_c()));
+        handle_error(clingcon_register(csptheory_, control.to_c()));
 
         parse_(control, files);
         control.ground({{"base", {}}});
-        handle_error(clingcon_prepare(theory_, control.to_c()));
+        handle_error(clingodl_prepare(dltheory_, control.to_c()));
+        handle_error(clingcon_prepare(csptheory_, control.to_c()));
 
 #ifdef CLINGCON_PROFILE
         ProfilerStart("clingcon.solve.prof");
@@ -162,7 +172,7 @@ public:
 private:
     void parse_(Clingo::Control &control, Clingo::StringSpan files) {
         control.with_builder([&](Clingo::ProgramBuilder &builder) {
-            Rewriter rewriter{theory_, builder.to_c()};
+            Rewriter rewriter{csptheory_, builder.to_c()};
             for (auto const &file : files) {
                 rewriter.load(file);
             }
@@ -172,7 +182,8 @@ private:
         });
     }
 
-    clingcon_theory_t *theory_{nullptr};
+    clingcon_theory_t *csptheory_{nullptr};
+    clingodl_theory_t *dltheory_{nullptr};
     std::vector<Clingo::Symbol> symvec_;
 };
 
