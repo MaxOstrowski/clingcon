@@ -24,6 +24,7 @@
 
 #include "clingcon.h"
 #include "clingcon/propagator.hh"
+#include "clingcon/dlpropagator.hh"
 #include "clingcon/parsing.hh"
 
 #include <clingo.hh>
@@ -46,47 +47,90 @@ enum class Target { Heuristic, SignValue, RefineReasons, RefineIntroduce, Propag
 } // namespace
 
 struct clingcon_theory {
-    Propagator propagator;
+    Clingcon::Propagator propagator;
+    ClingoDL::Stats dlstats;
+    ClingoDL::Stats dlstep;
+    ClingoDL::Stats dlaccu;
+    ClingoDL::PropagatorConfig dlconf;
+    ClingoDL::DifferenceLogicPropagator dlpropagator{dlstats, dlconf};
     Clingo::Detail::ParserList parsers;
     std::map<std::pair<Target, std::optional<uint32_t>>, val_t> deferred;
     bool shift_constraints{true};
+
+    void on_dl_statistics(UserStatistics& step, UserStatistics &accu) {
+        dlaccu.accu(dlstep);
+        add_statistics(step, dlstep);
+        add_statistics(accu, dlaccu);
+        dlstep.reset();
+    }
+
+    static void add_statistics(UserStatistics& root, ClingoDL::Stats const &stats) {
+        UserStatistics diff = root.add_subkey("DifferenceLogic", StatisticsType::Map);
+        diff.add_subkey("Time init(s)", StatisticsType::Value).set_value(stats.time_init.count());
+        diff.add_subkey("Mutexes", StatisticsType::Value).set_value(stats.mutexes);
+        UserStatistics threads = diff.add_subkey("Thread", StatisticsType::Array);
+        threads.ensure_size(stats.dl_stats.size(), StatisticsType::Map);
+        auto it = threads.begin();
+        for (ClingoDL::DLStats const& stat : stats.dl_stats) {
+            auto thread = *it++;
+            thread.add_subkey("Propagation(s)", StatisticsType::Value).set_value(stat.time_propagate.count());
+            thread.add_subkey("Dijkstra(s)", StatisticsType::Value).set_value(stat.time_dijkstra.count());
+            thread.add_subkey("Undo(s)", StatisticsType::Value).set_value(stat.time_undo.count());
+            thread.add_subkey("True edges", StatisticsType::Value).set_value(stat.true_edges);
+            thread.add_subkey("False edges", StatisticsType::Value).set_value(stat.false_edges);
+            thread.add_subkey("Edges added", StatisticsType::Value).set_value(stat.edges_added);
+            thread.add_subkey("Edges skipped", StatisticsType::Value).set_value(stat.edges_skipped);
+            thread.add_subkey("Edges propagated", StatisticsType::Value).set_value(stat.edges_propagated);
+            thread.add_subkey("Cost consistency", StatisticsType::Value).set_value(stat.propagate_cost_add);
+            thread.add_subkey("Cost forward", StatisticsType::Value).set_value(stat.propagate_cost_from);
+            thread.add_subkey("Cost backward", StatisticsType::Value).set_value(stat.propagate_cost_to);
+        }
+    }
+
+
+
 };
 
 namespace {
 
+template<typename T>
 bool init(clingo_propagate_init_t* c_init, void* data) {
     CLINGCON_TRY {
         Clingo::PropagateInit init{c_init};
-        static_cast<Propagator*>(data)->init(init);
+        static_cast<T*>(data)->init(init);
     }
     CLINGCON_CATCH;
 }
 
+template<typename T>
 bool propagate(clingo_propagate_control_t* c_ctl, const clingo_literal_t *changes, size_t size, void* data) {
     CLINGCON_TRY {
         Clingo::PropagateControl ctl{c_ctl};
-        static_cast<Propagator*>(data)->propagate(ctl, {changes, size});
+        static_cast<T*>(data)->propagate(ctl, {changes, size});
     }
     CLINGCON_CATCH;
 }
 
+template<typename T>
 void undo(clingo_propagate_control_t const *c_ctl, clingo_literal_t const *changes, size_t size, void* data) {
     Clingo::PropagateControl ctl(const_cast<clingo_propagate_control_t *>(c_ctl)); // NOLINT
-    static_cast<Propagator*>(data)->undo(ctl, {changes, size});
+    static_cast<T*>(data)->undo(ctl, {changes, size});
 }
 
+template<typename T>
 bool check(clingo_propagate_control_t *c_ctl, void* data) {
     CLINGCON_TRY {
         Clingo::PropagateControl ctl{c_ctl};
-        static_cast<Propagator*>(data)->check(ctl);
+        static_cast<T*>(data)->check(ctl);
     }
     CLINGCON_CATCH;
 }
 
+template<typename T>
 bool decide(clingo_id_t thread_id, clingo_assignment_t const *c_ass, clingo_literal_t fallback, void* data, clingo_literal_t *result) {
     CLINGCON_TRY {
         Clingo::Assignment ass{c_ass};
-        *result = static_cast<Propagator*>(data)->decide(thread_id, ass, fallback);
+        *result = static_cast<T*>(data)->decide(thread_id, ass, fallback);
     }
     CLINGCON_CATCH;
 }
@@ -95,12 +139,12 @@ char const *flag_str(bool value) {
     return value ? "yes" : "no";
 }
 
-char const *heuristic_str(Heuristic heu) {
+char const *heuristic_str(Clingcon::Heuristic heu) {
     switch(heu) {
-        case Heuristic::None: {
+        case Clingcon::Heuristic::None: {
             return "none";
         }
-        case Heuristic::MaxChain: {
+        case Clingcon::Heuristic::MaxChain: {
             return "max-chain";
             break;
         }
@@ -175,7 +219,7 @@ void set_value(Target target, SolverConfig &config, val_t value) {
             break;
         }
         case Target::Heuristic: {
-            config.heuristic = static_cast<Heuristic>(value);
+            config.heuristic = static_cast<Clingcon::Heuristic>(value);
             break;
         }
         case Target::RefineReasons: {
@@ -221,6 +265,83 @@ void set_value(Target target, Config &config, std::pair<val_t, std::optional<uin
     throw std::invalid_argument("invalid argument");
 }
 
+
+static char const *iequals_pre(char const *a, char const *b) {
+    for (; *a && *b; ++a, ++b) {
+        if (tolower(*a) != tolower(*b)) { return nullptr; }
+    }
+    return *b ? nullptr : a;
+}
+static bool iequals(char const *a, char const *b) {
+    a = iequals_pre(a, b);
+    return a && !*a;
+}
+static char const *parse_uint64_pre(const char *value, void *data) {
+    auto &res = *static_cast<uint64_t*>(data);
+    char const *it = value;
+    res = 0;
+
+    for (; *it; ++it) {
+        if ('0' <= *it && *it <= '9') {
+            auto tmp = res;
+            res *= 10;
+            res += *it - '0';
+            if (res < tmp) { return nullptr; }
+        }
+        else { break; }
+    }
+
+    return value != it ? it : nullptr;
+}
+static bool parse_uint64(const char *value, void *data) {
+    value = parse_uint64_pre(value, data);
+    return value && !*value;
+}
+
+template <typename F, typename G>
+bool set_config(char const *value, void *data, F f, G g) {
+    try {
+        auto &config = *static_cast<ClingoDL::PropagatorConfig*>(data);
+        uint64_t id = 0;
+        if (*value == '\0') {
+            f(config);
+            return true;
+        }
+        else if (*value == ',' && parse_uint64(value + 1, &id) && id < 64) {
+            g(config.ensure(id));
+            return true;
+        }
+    }
+    catch (...) { }
+    return false;
+}
+
+static bool parse_mutex(const char *value, void *data) {
+    auto &pc = *static_cast<ClingoDL::PropagatorConfig*>(data);
+    uint64_t x = 0;
+    if (!(value = parse_uint64_pre(value, &x))) { return false; }
+    pc.mutex_size = x;
+    if (*value == '\0') {
+        pc.mutex_cutoff = 10 * x;
+        return true;
+    }
+    if (*value == ',') {
+        if (!parse_uint64(value+1, &x)) { return false; }
+        pc.mutex_cutoff = x;
+    }
+    return true;
+}
+static bool parse_mode(const char *value, void *data) {
+    ClingoDL::PropagationMode mode = ClingoDL::PropagationMode::Check;
+    char const *rem = nullptr;
+    if ((rem = iequals_pre(value, "no"))) {
+        mode = ClingoDL::PropagationMode::Check;
+    }
+    return rem && set_config(rem, data,
+        [mode](ClingoDL::PropagatorConfig &config) { config.mode = mode; },
+        [mode](ClingoDL::ThreadConfig &config) { config.mode = {true, mode}; });
+}
+
 [[nodiscard]] char const *find_str(char const *s, char c) {
     if (char const *t = std::strchr(s, c); t != nullptr) {
         return t;
@@ -262,10 +383,10 @@ void set_value(Target target, Config &config, std::pair<val_t, std::optional<uin
     }
 
     if (std::strncmp(value, "none", comma - value) == 0) {
-        return {static_cast<val_t>(Heuristic::None), thread};
+        return {static_cast<val_t>(Clingcon::Heuristic::None), thread};
     }
     if (std::strncmp(value, "max-chain", comma - value) == 0) {
-        return {static_cast<val_t>(Heuristic::MaxChain), thread};
+        return {static_cast<val_t>(Clingcon::Heuristic::MaxChain), thread};
     }
     throw std::invalid_argument("invalid argument");
 }
@@ -303,15 +424,23 @@ extern "C" bool clingcon_create(clingcon_theory_t **theory) {
 extern "C" bool clingcon_register(clingcon_theory_t *theory, clingo_control_t* control) {
     // Note: The decide function is passed here for performance reasons.
     auto &config = theory->propagator.config();
-    bool has_heuristic = config.default_solver_config.heuristic != Heuristic::None;
+    bool has_heuristic = config.default_solver_config.heuristic != Clingcon::Heuristic::None;
     for (auto &sconfig : config.solver_configs) {
         if (has_heuristic) { break; }
-        has_heuristic = sconfig.heuristic != Heuristic::None;
+        has_heuristic = sconfig.heuristic != Clingcon::Heuristic::None;
     }
 
-    static clingo_propagator_t propagator = { init, propagate, undo, check, has_heuristic ? decide : nullptr };
+    static clingo_propagator_t propagator = { init<Clingcon::Propagator>, propagate<Clingcon::Propagator>,
+                                              undo<Clingcon::Propagator>, check<Clingcon::Propagator>,
+                                              has_heuristic ? decide<Clingcon::Propagator> : nullptr };
+    static clingo_propagator_t dlpropagator = { nullptr,
+                                                propagate<ClingoDL::DifferenceLogicPropagator>,
+                                                undo<ClingoDL::DifferenceLogicPropagator>,
+                                                check<ClingoDL::DifferenceLogicPropagator>,
+                                                nullptr };
     return
         clingo_control_add(control, "base", nullptr, 0, Clingcon::THEORY) &&
+        clingo_control_register_propagator(control, &dlpropagator, &theory->dlpropagator, false) &&
         clingo_control_register_propagator(control, &propagator, &theory->propagator, false);
 }
 
@@ -512,6 +641,15 @@ extern "C" bool clingcon_register_options(clingcon_theory_t *theory, clingo_opti
             group, "check-state,@2",
             format("Check state invariants [", flag_str(config.check_state), "]").c_str(),
             config.check_state);
+            
+//        group = "Clingo.DL Options";
+//        opts.add(
+//            group, "add-mutexes",
+//            "Add mutexes in a preprocessing step [0]\n"
+//            "      <arg>   : <max>[,<cut>]\n"
+//            "      <max>   : Maximum size of mutexes to add\n"
+//            "      <cut>   : Limit costs to calculate mutexes\n",
+//            &parse_mutex, &theory->dlconf, true, "<arg>"));
     }
     CLINGCON_CATCH;
 }
@@ -595,6 +733,7 @@ extern "C" bool clingcon_on_statistics(clingcon_theory_t *theory, clingo_statist
         Clingo::UserStatistics step_stats{step, step_root};
         Clingo::UserStatistics accu_stats{accu, accu_root};
         theory->propagator.on_statistics(step_stats, accu_stats);
+        theory->on_dl_statistics(step_stats, accu_stats);
     }
     CLINGCON_CATCH;
 }

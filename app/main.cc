@@ -1,6 +1,5 @@
 #include <clingo.hh>
 #include <clingcon.h>
-#include <clingo-dl.h>
 #include <sstream>
 #include <fstream>
 #include <optional>
@@ -58,7 +57,6 @@ class ClingconApp final : public Clingo::Application, private Clingo::SolveEvent
 public:
     ClingconApp() {
         handle_error(clingcon_create(&csptheory_));
-        handle_error(clingodl_create(&dltheory_));
     }
 
     ClingconApp(ClingconApp const &) = delete;
@@ -69,9 +67,6 @@ public:
     ~ClingconApp() override {
         if (csptheory_ != nullptr) {
             clingcon_destroy(csptheory_);
-        }
-        if (dltheory_ != nullptr) {
-            clingodl_destroy(dltheory_);
         }
     }
 
@@ -85,12 +80,10 @@ public:
 
     void register_options(Clingo::ClingoOptions &options) override {
         handle_error(clingcon_register_options(csptheory_, options.to_c()));
-        handle_error(clingodl_register_options(dltheory_, options.to_c()));
     }
 
     void validate_options() override {
         handle_error(clingcon_validate_options(csptheory_));
-        handle_error(clingodl_validate_options(dltheory_));
     }
 
     bool on_model(Clingo::Model &model) override {
@@ -148,16 +141,13 @@ public:
     }
     void on_statistics(Clingo::UserStatistics step, Clingo::UserStatistics accu) override {
         handle_error(clingcon_on_statistics(csptheory_, step.to_c(), accu.to_c()));
-        handle_error(clingodl_on_statistics(dltheory_, step.to_c(), accu.to_c()));
     }
 
     void main(Clingo::Control &control, Clingo::StringSpan files) override { // NOLINT(bugprone-exception-escape)
-        handle_error(clingodl_register(dltheory_, control.to_c()));
         handle_error(clingcon_register(csptheory_, control.to_c()));
 
         parse_(control, files);
         control.ground({{"base", {}}});
-        handle_error(clingodl_prepare(dltheory_, control.to_c()));
         handle_error(clingcon_prepare(csptheory_, control.to_c()));
 
 #ifdef CLINGCON_PROFILE
@@ -183,7 +173,6 @@ private:
     }
 
     clingcon_theory_t *csptheory_{nullptr};
-    clingodl_theory_t *dltheory_{nullptr};
     std::vector<Clingo::Symbol> symvec_;
 };
 
