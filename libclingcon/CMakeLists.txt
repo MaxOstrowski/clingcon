@@ -1,8 +1,7 @@
 # [[[header: .
 set(ide_header_group "Header Files")
 set(header-group
-    "${CMAKE_CURRENT_SOURCE_DIR}/clingcon.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/clingo-dl.h")
+    "${CMAKE_CURRENT_SOURCE_DIR}/clingcon.h")
 source_group("${ide_header_group}" FILES ${header-group})
 set(header-group-clingcon
     "${CMAKE_CURRENT_SOURCE_DIR}/clingcon/astutil.hh"
@@ -24,7 +23,6 @@ set(ide_source_group "Source Files")
 set(source-group
     "${CMAKE_CURRENT_SOURCE_DIR}/src/astutil.cc"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/clingcon.cc"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/clingo-dl.cc"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/constraints.cc"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/parsing.cc"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/propagator.cc"
