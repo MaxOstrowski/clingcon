@@ -905,7 +905,7 @@ inline bool is_valid_var(int var) {
 
 
 
-class DifferenceLogicPropagator : public Propagator {
+class DifferenceLogicPropagator : public Clingo::Heuristic {
 private:
 
     using CoVarVec = std::vector<std::pair<int,int>>; // vector of coefficients and variables
@@ -921,6 +921,8 @@ public:
     // initialization
 
     void init(PropagateInit &init) override {
+        std::cout << "init called in dl with this " << this << std::endl;
+    /*
         if (!edges_.empty()) {
             init.set_check_mode(PropagatorCheckMode::Partial);
         }
@@ -1034,7 +1036,7 @@ public:
             }
         }
 
-        initialize_states(init);
+        initialize_states(init);*/
     }
 
     int round(double val) {
@@ -1455,6 +1457,8 @@ public:
     // propagation
 
     void check(PropagateControl &ctl) override {
+        std::cout << "check called in dl with this " << this << std::endl;
+    /*
         DLState &state = states_[ctl.thread_id()];
         auto &facts = facts_[ctl.thread_id()];
         auto assignment = ctl.assignment();
@@ -1473,6 +1477,7 @@ public:
             }
         }
 #endif
+*/
     }
 
     void disable_edge_by_lit(DLState &state, literal_t lit) {
@@ -1562,23 +1567,29 @@ public:
     }
 
     void propagate(PropagateControl &ctl, LiteralSpan changes) override {
+        std::cout << "propagate called in dl with this " << this << std::endl;
+    /*
         if (ctl.assignment().decision_level() == 0) {
             auto &facts = facts_[ctl.thread_id()];
             facts.lits.insert(facts.lits.end(), changes.begin(), changes.end());
         }
         do_propagate(ctl, changes);
+        */
     }
 
     // undo
 
     void undo(PropagateControl const &ctl, LiteralSpan changes) CLINGODL_UNDO_NOEXCEPT override {
+    /*
         static_cast<void>(changes);
         auto &state = states_[ctl.thread_id()];
         Timer t{state.stats.time_undo};
         state.dl_graph.backtrack();
+        */
     }
 
     void extend_model(Model &model) {
+        std::cout << "DL EXTEND MODEL CALLED - BAD" << std::endl;
         auto &state = states_[model.thread_id()];
         std::vector<int> adjust;
         adjust.reserve(zero_nodes_.size());
@@ -1597,6 +1608,11 @@ public:
             }
         }
         model.extend(vec);
+    }
+
+    Clingo::literal_t decide(Clingo::id_t thread_id, Clingo::Assignment const &assign, Clingo::literal_t fallback) override {
+        std::cout << "decide called with dl propagator " << this << std::endl;
+        return fallback;
     }
 
     size_t num_vertices() const {

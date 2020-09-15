@@ -190,7 +190,7 @@ TEST_CASE("dom", "[solving]") {
 }
 
 TEST_CASE("sum", "[solving]") {
-    SECTION("simple") {
+/*    SECTION("simple") {
         REQUIRE(solve("&sum{ x } > 0. &sum{ x } < 3. &sum { x } = y.") == S({
             "x=1 y=1",
             "x=2 y=2"}));
@@ -240,9 +240,9 @@ TEST_CASE("sum", "[solving]") {
                 "x=6"}));
         REQUIRE(solve("{a}. &sum { x } >= 3 :- a. &sum { x } <= 0 :- not a.", 0, 3) == S({"a x=3", "x=0"}));
         REQUIRE(solve("{a}. &sum { x } != 5 :- not a. &dom {5; 10} = x.", 0, 10) == S({"a x=10", "a x=5", "x=10"}));
-    }
+    }*/
     SECTION("parse") {
-        REQUIRE(solve("&sum { x(f(1+2)) } <= 0.", 0, 0) == S({"x(f(3))=0"}));
+        /*REQUIRE(solve("&sum { x(f(1+2)) } <= 0.", 0, 0) == S({"x(f(3))=0"}));
         REQUIRE(solve("&sum { x(f(1-2)) } <= 0.", 0, 0) == S({"x(f(-1))=0"}));
         REQUIRE(solve("&sum { x(f(-2)) } <= 0.", 0, 0) == S({"x(f(-2))=0"}));
         REQUIRE(solve("&sum { x(f(2*2)) } <= 0.", 0, 0) == S({"x(f(4))=0"}));
@@ -261,13 +261,14 @@ TEST_CASE("sum", "[solving]") {
         REQUIRE(solve("a :- &sum { x } >= 1.", -3, 3) == S(
             {"a x=1", "a x=2", "a x=3", "x=-1", "x=-2", "x=-3", "x=0"}));
         REQUIRE(solve("a :- &sum { x } = 1.", -3, 3) == S(
-            {"a x=1", "x=-1", "x=-2", "x=-3", "x=0", "x=2", "x=3"}));
+            {"a x=1", "x=-1", "x=-2", "x=-3", "x=0", "x=2", "x=3"}));*/
         REQUIRE(solve("&sum { 5*x + 10*y } = 20.", -3, 3) == S(
             {"x=-2 y=3", "x=0 y=2", "x=2 y=1"}));
+            /*
         REQUIRE(solve("&sum { -5*x + 10*y } = 20.", -3, 3) == S(
-            {"x=-2 y=1", "x=0 y=2", "x=2 y=3"}));
+            {"x=-2 y=1", "x=0 y=2", "x=2 y=3"}));*/
     }
-    SECTION("singleton") {
+/*    SECTION("singleton") {
         REQUIRE(solve("&sum { x } <= 1.", 0, 2) == S({"x=0", "x=1"}));
         REQUIRE(solve("&sum { x } >= 1.", 0, 2) == S({"x=1", "x=2"}));
         REQUIRE(solve("a :- &sum { x } <= 1.", 0, 2) == S({"a x=0", "a x=1", "x=2"}));
@@ -296,7 +297,7 @@ TEST_CASE("sum", "[solving]") {
         REQUIRE(solve("&sum { 1 : 1=(X;Y;Z) } = x.") == S({"x=3"}));
         REQUIRE(solve("&sum { v(X) } = X :- X=1..3. &sum { v(X) : X=1..2; v(X) : X=2..3 } = x.") == S({
             "x=8 v(1)=1 v(2)=2 v(3)=3"}));
-    }
+    }*/
     /*
     def test_multishot(self):
         s = Solver(0, 3)
